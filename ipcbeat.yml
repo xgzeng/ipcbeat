@@ -1,4 +1,7 @@
-output.console:
+#output.console:
+#    pretty: true
+
+output.websocket:
     pretty: true
 
 logging.level: info

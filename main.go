@@ -2,21 +2,14 @@ package main;
 
 import (
     "os"
-    //"github.com/elastic/beats/libbeat/beat"
-    //"github.com/xgzeng/ipcbeat/beater"
     "github.com/xgzeng/ipcbeat/cmd"
+    "github.com/xgzeng/ipcbeat/outputs/websocket"
 )
 
 func main() {
+    websocket.Init()
     err := cmd.RootCmd.Execute()
     if err != nil {
         os.Exit(1)
     }
-
-    //b, err := beater.New()
-    //if err != nil {
-    //    os.Exit(1)
-    //}
-
-    //b.Run(nil)
 }

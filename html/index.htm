@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script>
+window.addEventListener("load", function(evt) {
+    var output = document.getElementById("output");
+    var ws;
+    var print = function(message) {
+        var d = document.createElement("div");
+        d.innerHTML = message;
+        output.appendChild(d);
+    };
+
+    function OpenWebSocket() {
+        if (ws) {
+            return false;
+        }
+				ws_url = "ws://" + window.location.host + "/log"
+        ws = new WebSocket(ws_url)
+        ws.onopen = function(evt) {
+						print(ws_url + " connected, wait for log item")
+            console.info("web socket opened")
+        }
+        ws.onclose = function(evt) {
+            alert("web socket closed")
+            console.error("web socket closed")
+            ws = null;
+        }
+
+        ws.onmessage = function(evt) {
+            print(evt.data);
+        }
+
+        ws.onerror = function(evt) {
+            alert("web socket error: " + evt.data)
+        }
+
+        return false;
+    }
+
+    OpenWebSocket()
+
+    function CloseWebSocket() {
+        if (!ws) {
+            return false;
+        }
+        ws.close();
+        return false;
+    }
+});
+</script>
+</head>
+<body>
+<div id="output"></div>
+</body>
+</html>
