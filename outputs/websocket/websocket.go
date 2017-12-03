@@ -18,12 +18,12 @@ import (
 )
 
 type wsConnection struct {
-	ch_event chan []byte
+	chEvent chan []byte
 }
 
 func makeWsConnection(c *websocket.Conn, o *wsOutput) *wsConnection {
 	wsc := &wsConnection{
-		ch_event: make(chan []byte),
+		chEvent: make(chan []byte),
 	}
 
 	// reader routine
@@ -43,7 +43,7 @@ func makeWsConnection(c *websocket.Conn, o *wsOutput) *wsConnection {
 	// forward routine
 	go func() {
 		for {
-			message := <-wsc.ch_event
+			message := <-wsc.chEvent
 			log.Printf("recv: %s", message)
 			err := c.WriteMessage(websocket.TextMessage, message)
 			if err != nil {
@@ -58,21 +58,22 @@ func makeWsConnection(c *websocket.Conn, o *wsOutput) *wsConnection {
 
 func (c *wsConnection) publish(message []byte) {
 	log.Print("wsConnection::publish ", string(message))
-	c.ch_event <- message
+	c.chEvent <- message
 }
 
 type wsOutput struct {
-	observer outputs.Observer
-	codec    codec.Codec
-	index    string
-	http_server   *http.Server
-	conns    []*wsConnection
+	observer   outputs.Observer
+	codec      codec.Codec
+	index      string
+	httpServer *http.Server
+	conns      []*wsConnection
 	// internal channel
-	ch_event      chan []byte
-	ch_new_conn   chan *wsConnection
-	ch_close_conn chan *wsConnection
+	chEvent     chan []byte
+	chNewConn   chan *wsConnection
+	chCloseConn chan *wsConnection
 }
 
+// Init websocket output module
 func Init() {
 	outputs.RegisterType("websocket", makeOutput)
 }
@@ -80,15 +81,15 @@ func Init() {
 var upgrader = websocket.Upgrader{}
 
 func (o *wsOutput) delWsConnection(c *wsConnection) {
-	o.ch_close_conn <- c
+	o.chCloseConn <- c
 }
 
 func (o *wsOutput) getWsConnection(index int) *wsConnection {
 	if index < len(o.conns) {
 		return o.conns[index]
-	} else {
-		return nil
 	}
+
+	return nil
 }
 
 // handle incoming websocket url
@@ -100,23 +101,23 @@ func (o *wsOutput) handleWSConn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wsc := makeWsConnection(c, o)
-	o.ch_new_conn <- wsc
+	o.chNewConn <- wsc
 }
 
 func (o *wsOutput) run() {
 	// run web server
 	go func() {
-		logp.Info("Serve http request on " + o.http_server.Addr)
-		err := o.http_server.ListenAndServe()
+		logp.Info("Serve http request on " + o.httpServer.Addr)
+		err := o.httpServer.ListenAndServe()
 		log.Fatal(err)
 	}()
 
-  // forward logs
+	// forward logs
 	for {
 		select {
-		case c := <-o.ch_new_conn:
+		case c := <-o.chNewConn:
 			o.conns = append(o.conns, c)
-		case c := <-o.ch_close_conn:
+		case c := <-o.chCloseConn:
 			// find and delete connection
 			var i int
 			for i = 0; i < len(o.conns); i++ {
@@ -127,7 +128,7 @@ func (o *wsOutput) run() {
 			if i < len(o.conns) {
 				o.conns = append(o.conns[:i], o.conns[i+1:]...)
 			}
-		case e := <-o.ch_event:
+		case e := <-o.chEvent:
 			// forward event for every connection
 			for _, c := range o.conns {
 				c.publish(e)
@@ -137,11 +138,11 @@ func (o *wsOutput) run() {
 }
 
 type rootRedirectHandler struct {
-  handler http.Handler
+	handler http.Handler
 }
 
-func (h *rootRedirectHandler) ServeHTTP(w http.ResponseWriter, r * http.Request) {
-  if r.URL.Path == "" || r.URL.Path == "/" {
+func (h *rootRedirectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "" || r.URL.Path == "/" {
 		// redirect to index.htm
 		http.Redirect(w, r, "/index.htm", http.StatusFound)
 	} else {
@@ -149,33 +150,33 @@ func (h *rootRedirectHandler) ServeHTTP(w http.ResponseWriter, r * http.Request)
 	}
 }
 
-func (o *wsOutput) init(http_addr string) {
-		// init http server
-		mux := http.NewServeMux()
-		mux.HandleFunc("/log", o.handleWSConn)
+func (o *wsOutput) init(httpAddr string) {
+	// init http server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/log", o.handleWSConn)
 
-	  // check default htm static directory
-	  file_info, err := os.Stat("./html")
-	  if err == nil && file_info.IsDir() {
-			root_handler := &rootRedirectHandler {
-				handler: http.FileServer(http.Dir("./html")),
-			}
-
-			mux.Handle("/", root_handler)
-		} else {
-		  homeTemplate, err := template.ParseFiles("home.template")
-		  if err != nil {
-			  homeTemplate = DEFAULT_HOME_TEMPLATE
-		  }
-			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-					homeTemplate.Execute(w, "ws://"+r.Host+"/log")
-			})
+	// check default htm static directory
+	finfo, err := os.Stat("./html")
+	if err == nil && finfo.IsDir() {
+		rootHandler := &rootRedirectHandler{
+			handler: http.FileServer(http.Dir("./html")),
 		}
 
-		o.http_server = &http.Server{
-			Addr:    http_addr,
-			Handler: mux,
+		mux.Handle("/", rootHandler)
+	} else {
+		homeTemplate, err := template.ParseFiles("home.template")
+		if err != nil {
+			homeTemplate = defaultHomeTemplate
 		}
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			homeTemplate.Execute(w, "ws://"+r.Host+"/log")
+		})
+	}
+
+	o.httpServer = &http.Server{
+		Addr:    httpAddr,
+		Handler: mux,
+	}
 }
 
 func makeOutput(
@@ -197,12 +198,12 @@ func makeOutput(
 	index := beat.Beat
 
 	o := &wsOutput{
-		codec:         enc,
-		observer:      observer,
-		index:         index,
-		ch_new_conn:   make(chan *wsConnection),
-		ch_close_conn: make(chan *wsConnection),
-		ch_event:      make(chan []byte),
+		codec:       enc,
+		observer:    observer,
+		index:       index,
+		chNewConn:   make(chan *wsConnection),
+		chCloseConn: make(chan *wsConnection),
+		chEvent:     make(chan []byte),
 	}
 
 	log.SetFlags(0)
@@ -215,7 +216,7 @@ func makeOutput(
 }
 
 func (o *wsOutput) Close() error {
-	o.http_server.Close()
+	o.httpServer.Close()
 	return nil
 }
 
@@ -250,7 +251,7 @@ func (o *wsOutput) publishEvent(event *publisher.Event) bool {
 		return false
 	}
 
-	o.ch_event <- serializedEvent
+	o.chEvent <- serializedEvent
 
 	// if err := o.writeBuffer(serializedEvent); err != nil {
 	// 	o.observer.WriteError(err)
@@ -266,7 +267,7 @@ func (o *wsOutput) publishEvent(event *publisher.Event) bool {
 	return true
 }
 
-var DEFAULT_HOME_TEMPLATE = template.Must(template.New("").Parse(`
+var defaultHomeTemplate = template.Must(template.New("").Parse(`
 <!DOCTYPE html>
 <html>
 <head>
